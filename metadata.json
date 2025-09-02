@@ -1,0 +1,5 @@
+{
+  "name": "JackTracker UI",
+  "description": "A user interface to manage and track song downloads from Spotify links using spotDL, yt-dlp, and ffmpeg.",
+  "requestFramePermissions": []
+}
