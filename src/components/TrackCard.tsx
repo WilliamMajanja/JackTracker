@@ -1,83 +1,110 @@
+
 import React from 'react';
-// FIX: Changed import path from alias to relative to resolve module not found error.
 import { Track } from '../types';
-// FIX: Changed import path from alias to relative to resolve module not found error.
-import { DownloadIcon, PauseIcon, PlayIcon, XCircleIcon } from './Icons';
+import { CheckCircleIcon, XCircleIcon, SpinnerIcon, PlayIcon, DownloadIcon } from './Icons';
 
 interface TrackCardProps {
   track: Track;
-  onPreview: (track: Track) => void;
-  isPlaying: boolean;
+  onRemove?: (id: string) => void;
+  onRetry?: (id: string) => void;
 }
 
-// Define the backend server address to construct absolute download links for preview/production.
-const BACKEND_HOST = 'localhost:3001';
-const BACKEND_URL = `${window.location.protocol}//${BACKEND_HOST}`;
+export const TrackCard: React.FC<TrackCardProps> = ({ track, onRemove, onRetry }) => {
+    const { status, progress, trackName, artistName, albumArtUrl, duration, errorMessage } = track;
+    const isError = status === 'error';
+    const isComplete = status === 'complete';
+    const isDownloading = status === 'downloading';
+    const isQueued = status === 'queued';
 
-
-export const TrackCard: React.FC<TrackCardProps> = ({ track, onPreview, isPlaying }) => {
-    const isError = track.status === 'error';
-
-    const downloadUrl = track.filePath
-        ? (import.meta.env.DEV ? track.filePath : `${BACKEND_URL}${track.filePath}`)
-        : '#';
-
-    const handlePreviewClick = (e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!isError) {
-            onPreview(track);
-        }
-    };
-  
     return (
-        <div className={`relative bg-spotify-gray-800 p-4 rounded-lg shadow-md flex items-center space-x-4 border ${isError ? 'border-red-900/50' : 'border-spotify-gray-700'} transition-colors duration-300 w-full overflow-hidden`}>
-            <img
-                src={track.albumArtUrl}
-                alt={track.albumName}
-                className="w-16 h-16 rounded-md object-cover flex-shrink-0"
-            />
-            <div className="flex-1 min-w-0">
-                <p className={`text-lg font-semibold truncate ${isError ? 'text-spotify-gray-500' : 'text-spotify-gray-100'}`}>{track.trackName}</p>
-                <p className="text-sm text-spotify-gray-400 truncate">{track.artistName}</p>
-            </div>
-            <div className="flex-shrink-0 flex items-center space-x-2">
-                {isError ? (
-                    <XCircleIcon className="w-7 h-7 text-red-500" />
-                ) : (
-                    <>
-                        <button
-                            onClick={handlePreviewClick}
-                            aria-label={isPlaying ? `Pause preview of ${track.trackName}` : `Play 30-second preview of ${track.trackName}`}
-                            className="p-2 rounded-full hover:bg-spotify-gray-600/50 transition-colors"
-                        >
-                            {isPlaying ? (
-                                <PauseIcon className="w-7 h-7 text-brand-spotify" />
-                            ) : (
-                                <PlayIcon className="w-7 h-7 text-spotify-gray-100" />
-                            )}
+        <div className="group relative bg-spotify-gray-800/80 backdrop-blur-md border border-spotify-gray-700 hover:border-spotify-gray-600 rounded-xl p-3 flex items-center gap-4 transition-all duration-300 hover:shadow-lg hover:bg-spotify-gray-700/60 overflow-hidden">
+            
+            {/* Download Progress Bar */}
+            {isDownloading && (
+                <div 
+                    className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-brand-spotify to-green-400 transition-all duration-200 ease-out z-10"
+                    style={{ width: `${progress}%` }}
+                />
+            )}
+
+            {/* Album Art Container */}
+            <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 rounded-lg overflow-hidden shadow-black/50 shadow-md">
+                <img
+                    src={albumArtUrl}
+                    alt={trackName}
+                    className={`w-full h-full object-cover transition-opacity duration-300 ${isQueued ? 'opacity-50 grayscale' : 'opacity-100'}`}
+                />
+                
+                {/* Status Overlays */}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 backdrop-blur-[1px]">
+                    {isComplete ? (
+                        <PlayIcon className="w-8 h-8 text-white drop-shadow-md cursor-pointer hover:scale-110 transition-transform" />
+                    ) : isError ? (
+                        <button onClick={() => onRetry?.(track.id)} className="px-2 py-1 bg-red-500/80 rounded text-[10px] font-bold text-white hover:bg-red-500">
+                            RETRY
                         </button>
-                        <a
-                            href={downloadUrl}
-                            download={track.fileName || track.trackName}
-                            aria-label={`Download ${track.trackName}`}
-                            className="p-2 rounded-full hover:bg-spotify-gray-600/50 transition-colors"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <DownloadIcon className="w-7 h-7 text-spotify-gray-100" />
-                        </a>
-                    </>
+                    ) : null}
+                </div>
+
+                {isDownloading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 z-0">
+                         <span className="text-white text-[10px] font-mono font-bold">{Math.round(progress)}%</span>
+                    </div>
+                )}
+                
+                {isQueued && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <SpinnerIcon className="w-5 h-5 text-white/70 animate-spin" />
+                    </div>
                 )}
             </div>
-            <div
-                className="absolute bottom-0 left-0 h-1 bg-brand-spotify"
-                style={{
-                    width: isPlaying ? '100%' : '0%',
-                    transition: isPlaying ? 'width 30s linear' : 'none',
-                }}
-                role="progressbar"
-                aria-hidden={!isPlaying}
-            />
+
+            {/* Track Details */}
+            <div className="flex-1 min-w-0 flex flex-col justify-center gap-0.5">
+                <div className="flex justify-between items-center">
+                    <h3 className={`font-bold text-sm sm:text-base truncate pr-2 ${isComplete ? 'text-white' : 'text-gray-300'}`}>
+                        {trackName}
+                    </h3>
+                </div>
+                <p className="text-xs sm:text-sm text-gray-400 truncate">{artistName}</p>
+                
+                <div className="flex items-center gap-2 mt-1">
+                     {duration && <span className="text-[10px] text-gray-500 font-mono bg-gray-800 px-1.5 py-0.5 rounded">{duration}</span>}
+                     
+                     {isError ? (
+                        <span className="text-[10px] text-red-400 truncate">{errorMessage || "Error"}</span>
+                    ) : isDownloading ? (
+                        <span className="text-[10px] text-brand-spotify animate-pulse font-medium">Downloading...</span>
+                    ) : isComplete ? (
+                        <span className="text-[10px] text-brand-spotify flex items-center gap-1 font-medium">
+                            <CheckCircleIcon className="w-3 h-3" /> Ready
+                        </span>
+                    ) : (
+                        <span className="text-[10px] text-gray-500">In Queue</span>
+                    )}
+                </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-1 sm:gap-2">
+                 {isComplete && (
+                     <button 
+                        className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-all active:scale-95"
+                        title="Download MP3"
+                     >
+                         <DownloadIcon className="w-5 h-5" />
+                     </button>
+                 )}
+                 {(isComplete || isError || isQueued) && (
+                     <button 
+                        onClick={() => onRemove?.(track.id)}
+                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-400/10 rounded-full transition-all active:scale-95"
+                        title="Remove"
+                     >
+                         <XCircleIcon className="w-5 h-5" />
+                     </button>
+                 )}
+            </div>
         </div>
     );
 };

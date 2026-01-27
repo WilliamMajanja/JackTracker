@@ -1,260 +1,187 @@
 
-
-
-
 import express from 'express';
-import cors from 'cors';
-import { spawn, exec } from 'child_process';
-import { fileURLToPath } from 'url';
-import path, { dirname } from 'path';
-import fs from 'fs';
-import http from 'http';
+import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import util from 'util';
-
-const execPromise = util.promisify(exec);
-
-const app = express();
-const port = 3001;
+import { GoogleGenAI, Type } from "@google/genai";
+import cors from 'cors';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { spawn } from 'child_process';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const downloadsDir = path.join(__dirname, 'downloads');
+const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+const port = process.env.PORT || 3001;
 
-if (!fs.existsSync(downloadsDir)) {
-  fs.mkdirSync(downloadsDir, { recursive: true });
-}
-
+// Middleware
 app.use(cors());
-app.use('/downloads', express.static(downloadsDir));
+app.use(express.json());
 
-// --- WebSocket Server Setup ---
-const server = http.createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+// Serve downloaded files statically so they can be retrieved by the frontend
+app.use('/downloads', express.static(join(__dirname, 'downloads')));
 
-server.on('upgrade', (request, socket, head) => {
-    const pathname = request.url;
+// Initialize Gemini (Backend Instance)
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    if (pathname === '/ws') {
-        wss.handleUpgrade(request, socket, head, function done(ws) {
-            wss.emit('connection', ws, request);
-        });
-    } else {
-        socket.destroy();
-    }
+// Shared Schema Definition
+const schema = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      trackName: { type: Type.STRING },
+      artistName: { type: Type.STRING },
+      albumName: { type: Type.STRING },
+      albumArtUrl: { type: Type.STRING },
+      url: { type: Type.STRING },
+      duration: { type: Type.STRING }
+    },
+    required: ["trackName", "artistName", "albumName", "albumArtUrl", "url"]
+  }
+};
+
+// API Endpoint for Metadata
+app.post('/api/metadata', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'URL is required' });
+
+    console.log(`Fetching metadata for: ${url}`);
+    
+    const prompt = `Based on the following music URL, extract the metadata for the track, album, or playlist. 
+        URL: ${url}
+        Return the data as a JSON object conforming to the schema.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+      },
+    });
+
+    const jsonString = response.text?.trim();
+    if (!jsonString) throw new Error("Empty response from Gemini");
+
+    const data = JSON.parse(jsonString);
+    res.json(Array.isArray(data) ? data : [data]);
+
+  } catch (error) {
+    console.error("Backend Error:", error);
+    res.status(500).json({ error: 'Failed to fetch metadata' });
+  }
 });
 
-wss.broadcast = function broadcast(data) {
-  wss.clients.forEach(function each(client) {
-    if (client.readyState === 1) { // WebSocket.OPEN
-      client.send(data, { binary: false });
+// Helper to handle downloads strictly
+const handleDownload = (ws, trackId, url) => {
+  const downloadsDir = join(__dirname, 'downloads');
+  
+  if (!fs.existsSync(downloadsDir)) {
+    fs.mkdirSync(downloadsDir, { recursive: true });
+  }
+
+  console.log(`[${trackId}] Starting download for: ${url}`);
+
+  let cmd;
+  let args = [];
+
+  // Strict implementation of download commands
+  if (url.includes('spotify.com')) {
+    // spotDL Command Structure:
+    // spotdl download [url] --output [template] --format mp3 --simple-tui
+    cmd = 'spotdl';
+    args = [
+      'download', 
+      url, 
+      '--output', join(downloadsDir, '{artist} - {title}.{output-ext}'), 
+      '--format', 'mp3',
+      '--simple-tui' // Minimal UI output for easier parsing
+    ];
+  } else {
+    // yt-dlp Command Structure:
+    // yt-dlp -x --audio-format mp3 --audio-quality 0 -o [template] [url]
+    cmd = 'yt-dlp';
+    args = [
+      '-x', // Extract audio
+      '--audio-format', 'mp3', 
+      '--audio-quality', '0', // 0 is best quality (VBR)
+      '-o', join(downloadsDir, '%(title)s.%(ext)s'), 
+      url
+    ];
+  }
+
+  // Use shell: true for better cross-platform compatibility (Windows/Linux)
+  // strict stdio handling to ensure we capture progress
+  const child = spawn(cmd, args, { shell: true });
+
+  // Parse progress from stdout/stderr
+  const parseProgress = (data) => {
+    const text = data.toString();
+    
+    // Strict regex to capture percentage (e.g., 45.5% or 45%)
+    // Matches standard output from both tools
+    const match = text.match(/(\d{1,3}(\.\d+)?)%/);
+    if (match && match[1]) {
+      const percent = parseFloat(match[1]);
+      if (!isNaN(percent) && percent <= 100) {
+        if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'progress', id: trackId, progress: percent }));
+        }
+      }
+    }
+  };
+
+  child.stdout.on('data', parseProgress);
+  child.stderr.on('data', parseProgress); // yt-dlp typically writes progress to stderr
+
+  child.on('error', (err) => {
+    console.error(`[${trackId}] Spawn error:`, err);
+    if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'error', id: trackId, error: `Tool missing: ${cmd}` }));
+    }
+  });
+
+  child.on('close', (code) => {
+    if (code === 0) {
+      console.log(`[${trackId}] Download complete`);
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'complete', id: trackId }));
+      }
+    } else {
+      console.error(`[${trackId}] Process exited with code ${code}`);
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'error', id: trackId, error: 'Download failed' }));
+      }
     }
   });
 };
 
-function sanitize(input) {
-  if (!input) return '';
-  // Removes characters that are illegal in Windows filenames/paths,
-  // which is a superset of illegal characters on other OSes.
-  // Also remove leading/trailing dots and spaces.
-  return input.replace(/[<>:"/\\|?*]/g, '_').trim().replace(/^\.+|\.+$/g, '').trim();
-}
-
-// --- Download Queue Logic ---
-let downloadQueue = [];
-let activeDownloads = 0;
-const MAX_CONCURRENT_DOWNLOADS = 3;
-
-async function processQueue() {
-    if (activeDownloads >= MAX_CONCURRENT_DOWNLOADS || downloadQueue.length === 0) {
-        return;
-    }
-
-    activeDownloads++;
-    const track = downloadQueue.shift();
-
-    try {
-        const sanitizedSubDir = track.downloadDir ? sanitize(track.downloadDir) : '';
-        const targetDir = path.join(downloadsDir, sanitizedSubDir);
-
-        if (sanitizedSubDir && !fs.existsSync(targetDir)) {
-            fs.mkdirSync(targetDir, { recursive: true });
-        }
-
-        let fileName;
-        if (track.downloader === 'yt-dlp' && track.playlistIndex) {
-            // Per the guide, YouTube playlist tracks are numbered to preserve order.
-            // Format: "01 - Track Name.mp3", "02 - Track Name.mp3", etc.
-            const indexStr = String(track.playlistIndex).padStart(2, '0');
-            fileName = `${indexStr} - ${sanitize(track.trackName)}.mp3`;
-        } else {
-            // Default naming for Spotify, single YouTube videos, etc.
-            fileName = `${sanitize(track.artistName)} - ${sanitize(track.trackName)}.mp3`;
-        }
-        
-        const fullPath = path.join(targetDir, fileName);
-        const fileUrl = path.join('/downloads', sanitizedSubDir, encodeURIComponent(fileName)).replace(/\\/g, '/');
-
-        if (fs.existsSync(fullPath)) {
-            console.log(`File already exists: ${fileName}`);
-            wss.broadcast(JSON.stringify({ type: 'complete', track: { ...track, filePath: fileUrl, fileName } }));
-            activeDownloads--;
-            processQueue();
-            return;
-        }
-
-        let downloaderProcess;
-        if (track.downloader === 'spotdl') {
-            const args = ['download', track.url, '--format', 'mp3', '--bitrate', '320k', '--output', fullPath];
-            downloaderProcess = spawn('spotdl', args);
-        } else if (track.downloader === 'yt-dlp') {
-            const args = ['-x', '--audio-format', 'mp3', '--audio-quality', '0', '--embed-thumbnail', '-o', fullPath, track.url];
-            downloaderProcess = spawn('yt-dlp', args);
-        } else {
-            throw new Error(`Unknown downloader: ${track.downloader}`);
-        }
-
-        downloaderProcess.stdout.on('data', (data) => {
-            const output = data.toString();
-            console.log(`[${track.downloader}] ${output.trim()}`);
-            const progressMatch = output.match(/\[download\]\s+([\d.]+)%/);
-            if (progressMatch && progressMatch[1]) {
-                const progress = parseFloat(progressMatch[1]);
-                wss.broadcast(JSON.stringify({ type: 'progress', trackId: track.id, progress }));
-            }
-        });
-
-        downloaderProcess.stderr.on('data', (data) => {
-            console.error(`[${track.downloader}-stderr] for ${track.trackName}: ${data.toString().trim()}`);
-        });
-
-        downloaderProcess.on('close', (code) => {
-            activeDownloads--;
-            if (code === 0 && fs.existsSync(fullPath)) {
-                console.log(`Download complete: ${fileName}`);
-                wss.broadcast(JSON.stringify({ type: 'complete', track: { ...track, filePath: fileUrl, fileName } }));
-            } else {
-                console.error(`${track.downloader} process exited with code ${code} for track ${track.trackName}`);
-                wss.broadcast(JSON.stringify({ type: 'error', trackId: track.id, message: `Download failed with exit code ${code}.` }));
-            }
-            processQueue();
-        });
-
-    } catch (error) {
-        console.error(`Error processing track ${track.trackName}:`, error);
-        wss.broadcast(JSON.stringify({ type: 'error', trackId: track.id, message: error.message }));
-        activeDownloads--;
-        processQueue();
-    }
-}
-
+// WebSocket for Download Management
 wss.on('connection', (ws) => {
-    console.log('Client connected');
+  console.log('Client connected');
 
-    ws.on('message', async (message) => {
-        try {
-            const data = JSON.parse(message);
-            if (data.type !== 'request-download' || !data.url) {
-                return;
-            }
-
-            let tracks = [];
-            const { url, downloadDir } = data;
-
-            if (url.includes('spotify.com')) {
-                const command = `spotdl meta "${url}"`;
-                const { stdout, stderr } = await execPromise(command, { maxBuffer: 1024 * 1024 * 10 });
-                if (stderr && !stdout.trim()) {
-                    throw new Error(`spotdl meta command failed. stderr: ${stderr}`);
-                }
-                const results = stdout.trim().split('\n').filter(line => line.startsWith('{') && line.endsWith('}')).map(line => JSON.parse(line));
-                if (results.length === 0) {
-                     throw new Error(`spotdl meta command returned no valid track data. stderr: ${stderr}`);
-                }
-                tracks = results.map(t => ({
-                    id: t.song_id || crypto.randomUUID(),
-                    trackName: t.name,
-                    artistName: t.artists.join(', '),
-                    albumName: t.album_name,
-                    albumArtUrl: t.cover_url,
-                    url: t.url,
-                    downloader: 'spotdl',
-                    downloadDir: downloadDir || ''
-                }));
-            } else if (url.includes('youtube.com') || url.includes('youtu.be')) {
-                const command = `yt-dlp -j --flat-playlist "${url}"`;
-                const { stdout, stderr } = await execPromise(command, { maxBuffer: 1024 * 1024 * 10 }); // 10MB buffer
-                 if (stderr && !stdout.trim()) {
-                    throw new Error(`yt-dlp meta command failed. stderr: ${stderr}`);
-                }
-                const results = stdout.trim().split('\n').map(line => JSON.parse(line));
-                if (results.length === 0) {
-                    throw new Error(`yt-dlp meta command returned no valid track data. stderr: ${stderr}`);
-                }
-                tracks = results.map((t, index) => ({
-                    id: t.id || crypto.randomUUID(),
-                    trackName: t.title,
-                    artistName: t.uploader || t.channel || 'Unknown Artist',
-                    albumName: t.album || 'Unknown Album',
-                    albumArtUrl: t.thumbnail,
-                    url: t.webpage_url,
-                    downloader: 'yt-dlp',
-                    downloadDir: downloadDir || '',
-                    playlistIndex: results.length > 1 ? index + 1 : null
-                }));
-            } else {
-                throw new Error('Invalid URL. Please provide a Spotify or YouTube link.');
-            }
-
-            if (tracks.length > 0) {
-                downloadQueue.push(...tracks);
-                ws.send(JSON.stringify({ type: 'queue-update', tracks }));
-                for (let i = 0; i < MAX_CONCURRENT_DOWNLOADS; i++) {
-                    processQueue();
-                }
-            } else {
-                 ws.send(JSON.stringify({ type: 'error', trackId: null, message: `No tracks found at the provided URL.`}));
-            }
-        } catch (error) {
-            console.error('Failed to process message or fetch metadata:', error);
-            const userMessage = error.message.includes('Invalid URL') 
-                ? error.message 
-                : `Failed to process link. Check if it's a valid public URL and try again.`;
-            ws.send(JSON.stringify({ type: 'error', trackId: null, message: userMessage}));
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message);
+      
+      if (data.type === 'download') {
+        if (data.url && data.id) {
+           handleDownload(ws, data.id, data.url);
         }
-    });
+      }
+    } catch (e) {
+      console.error("WebSocket Error:", e);
+    }
+  });
 
-    ws.on('close', () => {
-        console.log('Client disconnected');
-    });
+  ws.on('close', () => console.log('Client disconnected'));
 });
 
 server.listen(port, () => {
-    console.log(`JackTracker server listening at http://localhost:${port}`);
-    console.log(`Serving downloads from: ${downloadsDir}`);
+  console.log(`Server running on port ${port}`);
 });
-
-function shutdown(signal) {
-  console.log(`\n${signal} received. Shutting down gracefully...`);
-  
-  // Close all WebSocket connections
-  for (const client of wss.clients) {
-    client.close();
-  }
-
-  // Close the HTTP server
-  server.close(() => {
-    console.log('Server has been shut down.');
-    process.exit(0);
-  });
-
-  // Force shutdown after a timeout
-  setTimeout(() => {
-    console.error('Could not close connections in time, forcefully shutting down.');
-    process.exit(1);
-  }, 5000);
-}
-
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));

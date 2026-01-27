@@ -5,9 +5,18 @@ export interface Track {
   artistName: string;
   albumName: string;
   albumArtUrl: string;
-  url: string; // The spotify URL for the track
+  url: string;
+  duration?: string;
   status: 'queued' | 'downloading' | 'complete' | 'error';
   progress: number;
-  filePath?: string;
-  fileName?: string;
+  errorMessage?: string;
+}
+
+export interface TrackMetadata {
+  trackName: string;
+  artistName: string;
+  albumName: string;
+  albumArtUrl: string;
+  url: string;
+  duration?: string;
 }

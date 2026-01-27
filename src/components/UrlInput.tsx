@@ -1,5 +1,5 @@
+
 import React, { useMemo } from 'react';
-// FIX: Changed import path from alias to relative to resolve module not found error.
 import { DownloadIcon, SpotifyIcon, SpinnerIcon, YouTubeIcon, LinkIcon } from './Icons';
 
 interface UrlInputProps {
@@ -29,32 +29,39 @@ export const UrlInput: React.FC<UrlInputProps> = ({ url, setUrl, onDownload, isL
   }, [url]);
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-2xl mx-auto">
-      <div className="flex items-center bg-spotify-gray-800 border-2 border-spotify-gray-700 rounded-full shadow-lg overflow-hidden focus-within:border-brand-spotify transition-colors duration-300">
-        <div className="pl-5 pr-3">
-          <Icon className="w-6 h-6 text-spotify-gray-400" />
-        </div>
-        <input
-          type="url"
-          placeholder="Paste a Spotify or YouTube link here..."
-          className="w-full py-4 bg-transparent text-spotify-gray-100 placeholder-spotify-gray-500 focus:outline-none"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          disabled={isLoading}
-          required
-        />
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="bg-brand-spotify hover:bg-green-600 disabled:bg-spotify-gray-700 disabled:cursor-not-allowed text-white font-bold rounded-full h-12 w-16 md:w-28 flex items-center justify-center m-2 transition-all duration-300 transform"
-        >
-          {isLoading ? (
-            <SpinnerIcon className="animate-spin h-6 w-6" />
-          ) : (
-            <DownloadIcon className="h-6 w-6" />
-          )}
-        </button>
-      </div>
-    </form>
+    <div className="w-full max-w-3xl mx-auto relative z-10">
+        <form onSubmit={handleSubmit} className="relative group">
+            <div className={`absolute -inset-1 bg-gradient-to-r from-brand-spotify to-purple-600 rounded-full blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200 ${isLoading ? 'animate-pulse' : ''}`}></div>
+            <div className="relative flex items-center bg-spotify-gray-900 border border-spotify-gray-700 rounded-full shadow-2xl overflow-hidden focus-within:border-brand-spotify/50 transition-colors duration-300">
+                <div className="pl-6 pr-4 flex-shrink-0">
+                    <Icon className={`w-6 h-6 transition-colors duration-300 ${url ? 'text-brand-spotify' : 'text-spotify-gray-500'}`} />
+                </div>
+                <input
+                    type="url"
+                    placeholder="Paste a Spotify or YouTube link..."
+                    className="w-full py-5 bg-transparent text-spotify-gray-100 placeholder-spotify-gray-500 focus:outline-none text-lg"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    disabled={isLoading}
+                    required
+                />
+                <div className="pr-2">
+                    <button
+                        type="submit"
+                        disabled={isLoading || !url.trim()}
+                        className="bg-spotify-gray-100 hover:bg-white text-spotify-gray-900 disabled:bg-spotify-gray-700 disabled:text-spotify-gray-500 font-bold rounded-full h-10 px-6 flex items-center justify-center transition-all duration-300 transform active:scale-95"
+                    >
+                        {isLoading ? (
+                            <SpinnerIcon className="animate-spin h-5 w-5" />
+                        ) : (
+                            <span className="flex items-center gap-2 text-sm">
+                                Find
+                            </span>
+                        )}
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
   );
 };
