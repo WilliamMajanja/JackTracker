@@ -72,7 +72,11 @@
     }
 
     function escapeHtml(value) {
-      return String(value || '').replace(/[&<>"]/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[char]));
+      return String(value || '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
+    }
+
+    function randomId() {
+      return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
     function renderTrack(track) {
@@ -125,7 +129,7 @@
         });
 
         for (const item of metadata) {
-          const id = crypto.randomUUID();
+          const id = randomId();
           const track = {...item, id, status: 'queued', progress: 0};
           tracks.set(id, track);
           render();

@@ -20,8 +20,10 @@ DOWNLOADS_DIR = BASE_DIR / "downloads"
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 
 RATE_LIMIT_WINDOW_SECONDS = 60
-RATE_LIMIT_MAX_REQUESTS = int(os.environ.get("RATE_LIMIT_MAX_REQUESTS", "120"))
 DOWNLOAD_TIME_TOLERANCE_SECONDS = 1
+SEARCH_TERM_MAX_LENGTH = 120
+SPOTDL_OUTPUT_TEMPLATE = "{artist} - {title}.{output-ext}"
+YTDLP_OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".opus", ".ogg", ".wav", ".flac"}
 RATE_LIMIT_PATTERN = re.compile(r"(429|too many requests|rate.?limit|24\s*h|24.?hour|daily limit)", re.I)
 PROGRESS_PATTERN = re.compile(r"(\d{1,3}(?:\.\d+)?)%")
@@ -36,6 +38,19 @@ app = Flask(__name__)
 jobs: dict[str, dict[str, Any]] = {}
 request_counts: dict[str, dict[str, float]] = {}
 lock = threading.Lock()
+
+
+def read_int_env(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise RuntimeError(f"{name} must be an integer") from None
+
+
+RATE_LIMIT_MAX_REQUESTS = read_int_env("RATE_LIMIT_MAX_REQUESTS", 120)
 
 
 def is_supported_url(value: str) -> bool:
@@ -102,7 +117,7 @@ def get_metadata(url: str) -> list[dict[str, str]]:
 
 def normalize_search_term(value: str) -> str:
     cleaned = SAFE_SEARCH_PATTERN.sub(" ", value or "")
-    return re.sub(r"\s+", " ", cleaned).strip()[:120]
+    return re.sub(r"\s+", " ", cleaned).strip()[:SEARCH_TERM_MAX_LENGTH]
 
 
 def update_job(job_id: str, **changes: Any) -> None:
@@ -136,7 +151,7 @@ def build_ytdlp_args(target: str) -> list[str]:
         "--audio-format", "mp3",
         "--audio-quality", "0",
         "--no-playlist",
-        "-o", str(DOWNLOADS_DIR / "%(title)s.%(ext)s"),
+        "-o", str(DOWNLOADS_DIR / YTDLP_OUTPUT_TEMPLATE),
         target,
     ]
 
@@ -177,7 +192,7 @@ def download_worker(job_id: str, payload: dict[str, str]) -> None:
 
     if platform == "spotify":
         command = "spotdl"
-        args = ["download", url, "--output", str(DOWNLOADS_DIR / "{artist} - {title}.{output-ext}"), "--format", "mp3", "--simple-tui"]
+        args = ["download", url, "--output", str(DOWNLOADS_DIR / SPOTDL_OUTPUT_TEMPLATE), "--format", "mp3", "--simple-tui"]
     else:
         command = "yt-dlp"
         args = build_ytdlp_args(url)
@@ -210,12 +225,14 @@ def download_worker(job_id: str, payload: dict[str, str]) -> None:
 def rate_limit() -> Any:
     key = request.remote_addr or "unknown"
     now = time.time()
-    entry = request_counts.get(key, {"count": 0, "reset_at": now + RATE_LIMIT_WINDOW_SECONDS})
-    if entry["reset_at"] <= now:
-        entry = {"count": 0, "reset_at": now + RATE_LIMIT_WINDOW_SECONDS}
-    entry["count"] += 1
-    request_counts[key] = entry
-    if entry["count"] > RATE_LIMIT_MAX_REQUESTS:
+    with lock:
+        entry = request_counts.get(key, {"count": 0, "reset_at": now + RATE_LIMIT_WINDOW_SECONDS})
+        if entry["reset_at"] <= now:
+            entry = {"count": 0, "reset_at": now + RATE_LIMIT_WINDOW_SECONDS}
+        entry["count"] += 1
+        request_counts[key] = entry
+        is_limited = entry["count"] > RATE_LIMIT_MAX_REQUESTS
+    if is_limited:
         return jsonify({"error": "Too many requests. Please try again shortly."}), 429
     return None
 
@@ -266,4 +283,4 @@ def download_file(filename: str) -> Any:
 
 
 if __name__ == "__main__":
-    app.run(host=os.environ.get("HOST", "0.0.0.0"), port=int(os.environ.get("PORT", "3001")), debug=os.environ.get("FLASK_DEBUG") == "1")
+    app.run(host=os.environ.get("HOST", "0.0.0.0"), port=read_int_env("PORT", 3001), debug=os.environ.get("FLASK_DEBUG") == "1")
