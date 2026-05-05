@@ -23,6 +23,9 @@ const spotifyHosts = new Set(['open.spotify.com', 'play.spotify.com']);
 const youtubeHosts = new Set(['youtube.com', 'www.youtube.com', 'music.youtube.com', 'youtu.be']);
 const allowedDownloadCommands = new Set(['spotdl', 'yt-dlp']);
 const requestCounts = new Map();
+const rateLimitWindowMs = 60_000;
+const rateLimitMaxRequests = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 120);
+const downloadTimeToleranceMs = 1000;
 
 // Middleware
 app.use(cors());
@@ -30,17 +33,17 @@ app.use(express.json({ limit: '32kb' }));
 app.use((req, res, next) => {
   const now = Date.now();
   const key = req.ip || req.socket.remoteAddress || 'unknown';
-  const entry = requestCounts.get(key) || { count: 0, resetAt: now + 60_000 };
+  const entry = requestCounts.get(key) || { count: 0, resetAt: now + rateLimitWindowMs };
 
   if (entry.resetAt <= now) {
     entry.count = 0;
-    entry.resetAt = now + 60_000;
+    entry.resetAt = now + rateLimitWindowMs;
   }
 
   entry.count += 1;
   requestCounts.set(key, entry);
 
-  if (entry.count > 120) {
+  if (entry.count > rateLimitMaxRequests) {
     return res.status(429).json({ error: 'Too many requests. Please try again shortly.' });
   }
 
@@ -103,6 +106,12 @@ const fallbackMetadata = (url, title = 'Queued music link', artist = 'Unknown ar
   url,
 }]);
 
+const normalizeSearchTerm = (value) => String(value || '')
+  .replace(/[^\p{L}\p{N}\s.'’&(),-]/gu, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, 120);
+
 const fetchOEmbedMetadata = async (url) => {
   const platform = getPlatform(url);
   let endpoint;
@@ -157,7 +166,7 @@ const findNewDownload = (beforeFiles, startedAt) => {
     .filter(({ file, mtimeMs }) => {
       const previousMtime = beforeFiles.get(file);
       return /\.(mp3|m4a|opus|ogg|wav|flac)$/i.test(file)
-        && (!previousMtime || mtimeMs !== previousMtime || mtimeMs >= startedAt - 1000);
+        && (!previousMtime || mtimeMs !== previousMtime || mtimeMs >= startedAt - downloadTimeToleranceMs);
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
@@ -283,7 +292,7 @@ const handleDownload = async (ws, track) => {
   let result = await runDownloadCommand(ws, trackId, cmd, args);
 
   if (platform === 'spotify' && result.code !== 0 && rateLimitPattern.test(result.output)) {
-    const query = [artistName, trackName].filter(Boolean).join(' ').trim();
+    const query = [artistName, trackName].map(normalizeSearchTerm).filter(Boolean).join(' ').trim();
     if (query) {
       console.warn(`[${trackId}] spotDL rate limit detected; falling back to yt-dlp search for "${query}"`);
       sendWs(ws, { type: 'status', id: trackId, message: 'spotDL rate-limited; trying YouTube fallback...' });
@@ -294,7 +303,11 @@ const handleDownload = async (ws, track) => {
 
   if (result.code === 0) {
     const downloadedFile = findNewDownload(beforeFiles, startedAt);
-    const safeFile = downloadedFile && downloadedFile === basename(downloadedFile) ? downloadedFile : null;
+    const safeFile = downloadedFile
+      && downloadedFile === basename(downloadedFile)
+      && fs.existsSync(join(downloadsDir, downloadedFile))
+      ? downloadedFile
+      : null;
     const downloadUrl = safeFile ? `/downloads/${encodeURIComponent(safeFile)}` : undefined;
     console.log(`[${trackId}] Download complete`);
     sendWs(ws, { type: 'complete', id: trackId, downloadUrl });
@@ -329,12 +342,6 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => console.log('Client disconnected'));
 });
-
-if (fs.existsSync(join(distDir, 'index.html'))) {
-  app.get(/^(?!\/api\/|\/downloads\/).*/, (_req, res) => {
-    res.sendFile(join(distDir, 'index.html'));
-  });
-}
 
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
