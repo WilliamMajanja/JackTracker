@@ -52,7 +52,7 @@ http://localhost:3001
 Optional environment variables:
 
 - `PORT`: Flask port, default `3001`
-- `HOST`: Flask host, default `0.0.0.0`
+- `HOST`: Flask host, default `127.0.0.1`
 - `RATE_LIMIT_MAX_REQUESTS`: Requests per minute per client, default `120`
 - `FLASK_DEBUG=1`: Enable Flask debug mode for local development
 

@@ -8,7 +8,7 @@ import app
 class DownloaderHelpersTest(unittest.TestCase):
     def test_spotify_fallback_target_sanitizes_query(self):
         target = app.build_spotify_fallback_target("Artist && rm -rf /", "Track <script>")
-        self.assertEqual(target, "ytsearch1:Artist && rm -rf Track script audio")
+        self.assertEqual(target, "ytsearch1:Artist rm -rf Track script audio")
 
     def test_rate_limit_pattern_matches_24_hour_limit(self):
         self.assertRegex("spotDL failed: 24 hour rate limit reached", app.RATE_LIMIT_PATTERN)

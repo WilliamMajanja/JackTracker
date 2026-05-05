@@ -29,7 +29,7 @@ USER_AGENT = "JackTracker/1.0"
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".opus", ".ogg", ".wav", ".flac"}
 RATE_LIMIT_PATTERN = re.compile(r"(429|too many requests|rate.?limit|24\s*h|24.?hour|daily limit)", re.I)
 PROGRESS_PATTERN = re.compile(r"(\d{1,3}(?:\.\d+)?)%")
-SAFE_SEARCH_PATTERN = re.compile(r"[^\w\s.'’&(),-]", re.UNICODE)
+SAFE_SEARCH_PATTERN = re.compile(r"[^\w\s.'’(),-]", re.UNICODE)
 SPOTIFY_HOSTS = {"open.spotify.com", "play.spotify.com"}
 YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "music.youtube.com", "youtu.be"}
 DEEZER_HOSTS = {"deezer.com", "www.deezer.com"}
@@ -161,9 +161,9 @@ def build_ytdlp_args(target: str) -> list[str]:
     ]
 
 
-def build_spotify_fallback_target(artist_name: str, track_name: str) -> str | None:
+def build_spotify_fallback_target(artist_name: str, track_name: str) -> str:
     query = " ".join(filter(None, [normalize_search_term(artist_name), normalize_search_term(track_name)]))
-    return f"ytsearch1:{query} audio" if query else None
+    return f"ytsearch1:{query} audio" if query else ""
 
 
 def run_download_command(job_id: str, command: str, args: list[str]) -> tuple[int, str]:
@@ -295,4 +295,4 @@ def download_file(filename: str) -> Any:
 
 
 if __name__ == "__main__":
-    app.run(host=os.environ.get("HOST", "0.0.0.0"), port=read_int_env("PORT", 3001), debug=os.environ.get("FLASK_DEBUG") == "1")
+    app.run(host=os.environ.get("HOST", "127.0.0.1"), port=read_int_env("PORT", 3001), debug=os.environ.get("FLASK_DEBUG") == "1")
