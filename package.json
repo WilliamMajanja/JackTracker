@@ -8,6 +8,7 @@
     "server": "node server.js",
     "client": "vite",
     "build": "tsc && vite build",
+    "test": "npm run build",
     "preview": "vite preview"
   },
   "dependencies": {
