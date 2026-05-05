@@ -19,10 +19,33 @@ const port = process.env.PORT || 3001;
 const downloadsDir = join(__dirname, 'downloads');
 const distDir = join(__dirname, 'dist');
 const rateLimitPattern = /(429|too many requests|rate.?limit|24\s*h|24.?hour|daily limit)/i;
+const spotifyHosts = new Set(['open.spotify.com', 'play.spotify.com']);
+const youtubeHosts = new Set(['youtube.com', 'www.youtube.com', 'music.youtube.com', 'youtu.be']);
+const allowedDownloadCommands = new Set(['spotdl', 'yt-dlp']);
+const requestCounts = new Map();
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '32kb' }));
+app.use((req, res, next) => {
+  const now = Date.now();
+  const key = req.ip || req.socket.remoteAddress || 'unknown';
+  const entry = requestCounts.get(key) || { count: 0, resetAt: now + 60_000 };
+
+  if (entry.resetAt <= now) {
+    entry.count = 0;
+    entry.resetAt = now + 60_000;
+  }
+
+  entry.count += 1;
+  requestCounts.set(key, entry);
+
+  if (entry.count > 120) {
+    return res.status(429).json({ error: 'Too many requests. Please try again shortly.' });
+  }
+
+  next();
+});
 
 // Serve downloaded files statically so they can be retrieved by the frontend
 app.use('/downloads', express.static(downloadsDir));
@@ -65,6 +88,13 @@ const isSupportedUrl = (value) => {
   }
 };
 
+const getPlatform = (url) => {
+  const { hostname } = new URL(url);
+  if (spotifyHosts.has(hostname)) return 'spotify';
+  if (youtubeHosts.has(hostname)) return 'youtube';
+  return 'generic';
+};
+
 const fallbackMetadata = (url, title = 'Queued music link', artist = 'Unknown artist', thumbnail = '/logo.svg') => ([{
   trackName: title,
   artistName: artist,
@@ -74,12 +104,12 @@ const fallbackMetadata = (url, title = 'Queued music link', artist = 'Unknown ar
 }]);
 
 const fetchOEmbedMetadata = async (url) => {
-  const parsed = new URL(url);
+  const platform = getPlatform(url);
   let endpoint;
 
-  if (parsed.hostname.includes('spotify.com')) {
+  if (platform === 'spotify') {
     endpoint = `https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`;
-  } else if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
+  } else if (platform === 'youtube') {
     endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
   } else {
     return fallbackMetadata(url);
@@ -144,6 +174,11 @@ const buildYtDlpArgs = (target) => ([
 ]);
 
 const runDownloadCommand = (ws, trackId, cmd, args) => new Promise((resolve) => {
+  if (!allowedDownloadCommands.has(cmd)) {
+    resolve({ code: -1, output: `Unsupported download command: ${cmd}` });
+    return;
+  }
+
   const child = spawn(cmd, args, { shell: false });
   let output = '';
 
@@ -223,11 +258,12 @@ const handleDownload = async (ws, track) => {
 
   console.log(`[${trackId}] Starting download for: ${url}`);
   sendWs(ws, { type: 'status', id: trackId, message: 'Starting download...' });
+  const platform = getPlatform(url);
 
   // Strict implementation of download commands
   let cmd;
   let args;
-  if (url.includes('spotify.com')) {
+  if (platform === 'spotify') {
     cmd = 'spotdl';
     args = [
       'download', 
@@ -246,7 +282,7 @@ const handleDownload = async (ws, track) => {
   let lastCmd = cmd;
   let result = await runDownloadCommand(ws, trackId, cmd, args);
 
-  if (url.includes('spotify.com') && result.code !== 0 && rateLimitPattern.test(result.output)) {
+  if (platform === 'spotify' && result.code !== 0 && rateLimitPattern.test(result.output)) {
     const query = [artistName, trackName].filter(Boolean).join(' ').trim();
     if (query) {
       console.warn(`[${trackId}] spotDL rate limit detected; falling back to yt-dlp search for "${query}"`);
@@ -258,7 +294,8 @@ const handleDownload = async (ws, track) => {
 
   if (result.code === 0) {
     const downloadedFile = findNewDownload(beforeFiles, startedAt);
-    const downloadUrl = downloadedFile ? `/downloads/${encodeURIComponent(basename(downloadedFile))}` : undefined;
+    const safeFile = downloadedFile && downloadedFile === basename(downloadedFile) ? downloadedFile : null;
+    const downloadUrl = safeFile ? `/downloads/${encodeURIComponent(safeFile)}` : undefined;
     console.log(`[${trackId}] Download complete`);
     sendWs(ws, { type: 'complete', id: trackId, downloadUrl });
   } else {
