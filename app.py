@@ -22,6 +22,7 @@ DOWNLOADS_DIR.mkdir(exist_ok=True)
 RATE_LIMIT_WINDOW_SECONDS = 60
 DOWNLOAD_TIME_TOLERANCE_SECONDS = 1
 SEARCH_TERM_MAX_LENGTH = 120
+MAX_ERROR_OUTPUT_LENGTH = 2000
 SPOTDL_OUTPUT_TEMPLATE = "{artist} - {title}.{output-ext}"
 YTDLP_OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".opus", ".ogg", ".wav", ".flac"}
@@ -169,7 +170,9 @@ def run_download_command(job_id: str, command: str, args: list[str]) -> tuple[in
     )
     output: list[str] = []
 
-    assert process.stdout is not None
+    if process.stdout is None:
+        raise RuntimeError("Downloader output stream was not available")
+
     for line in process.stdout:
         output.append(line)
         match = PROGRESS_PATTERN.search(line)
@@ -218,7 +221,7 @@ def download_worker(job_id: str, payload: dict[str, str]) -> None:
         download_url = f"/downloads/{quote(filename)}" if filename else None
         update_job(job_id, status="complete", progress=100, downloadUrl=download_url, message="Ready")
     else:
-        update_job(job_id, status="error", errorMessage="Download failed", output=output[-2000:])
+        update_job(job_id, status="error", errorMessage="Download failed", output=output[-MAX_ERROR_OUTPUT_LENGTH:])
 
 
 @app.before_request

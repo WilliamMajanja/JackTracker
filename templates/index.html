@@ -76,6 +76,7 @@
     }
 
     function randomId() {
+      // Fallback IDs are only used to correlate this page's local polling state.
       return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
