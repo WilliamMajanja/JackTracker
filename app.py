@@ -25,6 +25,7 @@ SEARCH_TERM_MAX_LENGTH = 120
 MAX_ERROR_OUTPUT_LENGTH = 2000
 SPOTDL_OUTPUT_TEMPLATE = "{artist} - {title}.{output-ext}"
 YTDLP_OUTPUT_TEMPLATE = "%(title)s.%(ext)s"
+USER_AGENT = "JackTracker/1.0"
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".opus", ".ogg", ".wav", ".flac"}
 RATE_LIMIT_PATTERN = re.compile(r"(429|too many requests|rate.?limit|24\s*h|24.?hour|daily limit)", re.I)
 PROGRESS_PATTERN = re.compile(r"(\d{1,3}(?:\.\d+)?)%")
@@ -83,7 +84,7 @@ def generic_metadata(url: str, title: str = "Queued music link", artist: str = "
 
 
 def fetch_json(url: str) -> dict[str, Any]:
-    req = Request(url, headers={"User-Agent": "JackTracker/1.0"})
+    req = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(req, timeout=8) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -136,7 +137,10 @@ def is_new_or_modified_audio(path: Path, before: dict[str, float], started_at: f
 
     previous_mtime = before.get(path.name)
     current_mtime = path.stat().st_mtime
-    return previous_mtime is None or current_mtime != previous_mtime or current_mtime >= started_at - DOWNLOAD_TIME_TOLERANCE_SECONDS
+    is_new_file = previous_mtime is None
+    was_modified = previous_mtime is not None and current_mtime != previous_mtime
+    modified_during_download = current_mtime >= started_at - DOWNLOAD_TIME_TOLERANCE_SECONDS
+    return is_new_file or was_modified or modified_during_download
 
 
 def find_new_download(before: dict[str, float], started_at: float) -> str | None:
@@ -155,6 +159,11 @@ def build_ytdlp_args(target: str) -> list[str]:
         "-o", str(DOWNLOADS_DIR / YTDLP_OUTPUT_TEMPLATE),
         target,
     ]
+
+
+def build_spotify_fallback_target(artist_name: str, track_name: str) -> str | None:
+    query = " ".join(filter(None, [normalize_search_term(artist_name), normalize_search_term(track_name)]))
+    return f"ytsearch1:{query} audio" if query else None
 
 
 def run_download_command(job_id: str, command: str, args: list[str]) -> tuple[int, str]:
@@ -207,11 +216,11 @@ def download_worker(job_id: str, payload: dict[str, str]) -> None:
         return
 
     if platform == "spotify" and code != 0 and RATE_LIMIT_PATTERN.search(output):
-        query = " ".join(filter(None, [normalize_search_term(artist_name), normalize_search_term(track_name)]))
-        if query:
+        fallback_target = build_spotify_fallback_target(artist_name, track_name)
+        if fallback_target:
             update_job(job_id, message="spotDL rate-limited; trying yt-dlp search fallback...")
             try:
-                code, output = run_download_command(job_id, "yt-dlp", build_ytdlp_args(f"ytsearch1:{query} audio"))
+                code, output = run_download_command(job_id, "yt-dlp", build_ytdlp_args(fallback_target))
             except FileNotFoundError:
                 update_job(job_id, status="error", errorMessage="Tool missing: yt-dlp")
                 return

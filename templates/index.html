@@ -75,7 +75,7 @@
       return String(value || '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
     }
 
-    function randomId() {
+    function createLocalId() {
       // Fallback IDs are only used to correlate this page's local polling state.
       return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
@@ -130,7 +130,7 @@
         });
 
         for (const item of metadata) {
-          const id = randomId();
+          const id = createLocalId();
           const track = {...item, id, status: 'queued', progress: 0};
           tracks.set(id, track);
           render();
