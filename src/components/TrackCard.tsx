@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Track } from '../types';
-import { CheckCircleIcon, XCircleIcon, SpinnerIcon, PlayIcon, DownloadIcon } from './Icons';
+import { CheckCircleIcon, XCircleIcon, SpinnerIcon, DownloadIcon } from './Icons';
 
 interface TrackCardProps {
   track: Track;
@@ -10,7 +10,7 @@ interface TrackCardProps {
 }
 
 export const TrackCard: React.FC<TrackCardProps> = ({ track, onRemove, onRetry }) => {
-    const { status, progress, trackName, artistName, albumArtUrl, duration, errorMessage } = track;
+    const { status, progress, trackName, artistName, albumArtUrl, duration, errorMessage, downloadUrl } = track;
     const isError = status === 'error';
     const isComplete = status === 'complete';
     const isDownloading = status === 'downloading';
@@ -32,13 +32,18 @@ export const TrackCard: React.FC<TrackCardProps> = ({ track, onRemove, onRetry }
                 <img
                     src={albumArtUrl}
                     alt={trackName}
+                    onError={(event) => {
+                        event.currentTarget.src = '/logo.svg';
+                    }}
                     className={`w-full h-full object-cover transition-opacity duration-300 ${isQueued ? 'opacity-50 grayscale' : 'opacity-100'}`}
                 />
                 
                 {/* Status Overlays */}
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 backdrop-blur-[1px]">
-                    {isComplete ? (
-                        <PlayIcon className="w-8 h-8 text-white drop-shadow-md cursor-pointer hover:scale-110 transition-transform" />
+                    {isComplete && downloadUrl ? (
+                        <a href={downloadUrl} download className="p-2 rounded-full text-white hover:scale-110 transition-transform" title="Download MP3">
+                            <DownloadIcon className="w-8 h-8 drop-shadow-md" />
+                        </a>
                     ) : isError ? (
                         <button onClick={() => onRetry?.(track.id)} className="px-2 py-1 bg-red-500/80 rounded text-[10px] font-bold text-white hover:bg-red-500">
                             RETRY
@@ -87,14 +92,16 @@ export const TrackCard: React.FC<TrackCardProps> = ({ track, onRemove, onRetry }
 
             {/* Action Buttons */}
             <div className="flex items-center gap-1 sm:gap-2">
-                 {isComplete && (
-                     <button 
+                  {isComplete && downloadUrl && (
+                      <a
+                        href={downloadUrl}
+                        download
                         className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-all active:scale-95"
                         title="Download MP3"
-                     >
-                         <DownloadIcon className="w-5 h-5" />
-                     </button>
-                 )}
+                      >
+                          <DownloadIcon className="w-5 h-5" />
+                      </a>
+                  )}
                  {(isComplete || isError || isQueued) && (
                      <button 
                         onClick={() => onRemove?.(track.id)}

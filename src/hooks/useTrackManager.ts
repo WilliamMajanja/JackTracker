@@ -7,10 +7,14 @@ export const useTrackManager = () => {
     const [tracks, setTracks] = useState<Track[]>([]);
     const [isFetchingMeta, setIsFetchingMeta] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isWsReady, setIsWsReady] = useState(false);
     const ws = useRef<WebSocket | null>(null);
 
     // Initialize WebSocket Connection
     useEffect(() => {
+        let shouldReconnect = true;
+        let reconnectTimer: number | undefined;
+
         const connect = () => {
             // Determine WS URL (use current host in browser, default to localhost:3001 if dev)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -24,6 +28,7 @@ export const useTrackManager = () => {
 
             socket.onopen = () => {
                 console.log('WebSocket Connected');
+                setIsWsReady(true);
             };
 
             socket.onmessage = (event) => {
@@ -36,7 +41,7 @@ export const useTrackManager = () => {
                         ));
                     } else if (data.type === 'complete') {
                         setTracks(prev => prev.map(t => 
-                            t.id === data.id ? { ...t, progress: 100, status: 'complete' } : t
+                            t.id === data.id ? { ...t, progress: 100, status: 'complete', downloadUrl: data.downloadUrl } : t
                         ));
                     } else if (data.type === 'error') {
                         setTracks(prev => prev.map(t => 
@@ -50,7 +55,10 @@ export const useTrackManager = () => {
 
             socket.onclose = () => {
                 console.log('WebSocket Disconnected. Reconnecting in 3s...');
-                setTimeout(connect, 3000);
+                setIsWsReady(false);
+                if (shouldReconnect) {
+                    reconnectTimer = window.setTimeout(connect, 3000);
+                }
             };
 
             socket.onerror = (err) => {
@@ -64,9 +72,11 @@ export const useTrackManager = () => {
         connect();
 
         return () => {
-            if (ws.current) {
-                ws.current.close();
+            shouldReconnect = false;
+            if (reconnectTimer) {
+                window.clearTimeout(reconnectTimer);
             }
+            ws.current?.close();
         };
     }, []);
 
@@ -76,7 +86,7 @@ export const useTrackManager = () => {
         const downloadingTracks = tracks.filter(t => t.status === 'downloading');
         
         // Concurrency limit: 3
-        if (queuedTracks.length === 0 || downloadingTracks.length >= 3) return;
+        if (!isWsReady || queuedTracks.length === 0 || downloadingTracks.length >= 3) return;
 
         const nextTrack = queuedTracks[0];
 
@@ -88,14 +98,16 @@ export const useTrackManager = () => {
             ws.current.send(JSON.stringify({
                 type: 'download',
                 id: nextTrack.id,
-                url: nextTrack.url
+                url: nextTrack.url,
+                trackName: nextTrack.trackName,
+                artistName: nextTrack.artistName,
             }));
         } else {
             // Fallback error if WS isn't ready
             setTracks(prev => prev.map(t => t.id === nextTrack.id ? { ...t, status: 'error', errorMessage: "Connection Error" } : t));
         }
 
-    }, [tracks]);
+    }, [tracks, isWsReady]);
 
     const addTrackByUrl = useCallback(async (url: string) => {
         if (!url.trim()) return;
@@ -135,7 +147,7 @@ export const useTrackManager = () => {
     }, []);
 
     const retryTrack = useCallback((id: string) => {
-        setTracks(prev => prev.map(t => t.id === id ? { ...t, status: 'queued', progress: 0, errorMessage: undefined } : t));
+        setTracks(prev => prev.map(t => t.id === id ? { ...t, status: 'queued', progress: 0, errorMessage: undefined, downloadUrl: undefined } : t));
     }, []);
 
     const removeTrack = useCallback((id: string) => {

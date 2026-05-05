@@ -10,6 +10,7 @@ export interface Track {
   status: 'queued' | 'downloading' | 'complete' | 'error';
   progress: number;
   errorMessage?: string;
+  downloadUrl?: string;
 }
 
 export interface TrackMetadata {

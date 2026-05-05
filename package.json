@@ -4,15 +4,19 @@
   "description": "A UI to find music metadata using Gemini.",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node server.js & vite",
+    "server": "node server.js",
     "client": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@google/genai": "0.15.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",
