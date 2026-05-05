@@ -23,6 +23,13 @@ class DownloaderHelpersTest(unittest.TestCase):
             self.assertTrue(app.is_new_or_modified_audio(audio, {}, audio.stat().st_mtime))
             self.assertFalse(app.is_new_or_modified_audio(text, {}, text.stat().st_mtime))
 
+    def test_trim_error_output_keeps_start_and_end(self):
+        output = "start" + ("x" * app.MAX_ERROR_OUTPUT_LENGTH) + "end"
+        trimmed = app.trim_error_output(output)
+        self.assertIn("start", trimmed)
+        self.assertIn("end", trimmed)
+        self.assertIn("...", trimmed)
+
 
 if __name__ == "__main__":
     unittest.main()

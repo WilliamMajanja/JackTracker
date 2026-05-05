@@ -75,11 +75,6 @@
       return String(value || '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
     }
 
-    function createLocalId() {
-      // Fallback IDs are only used to correlate this page's local polling state.
-      return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    }
-
     function renderTrack(track) {
       const progress = Math.round(track.progress || 0);
       const status = track.errorMessage || track.message || track.status;
@@ -130,15 +125,14 @@
         });
 
         for (const item of metadata) {
-          const id = createLocalId();
-          const track = {...item, id, status: 'queued', progress: 0};
-          tracks.set(id, track);
-          render();
-          await jsonFetch('/api/download', {
+          const started = await jsonFetch('/api/download', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(track)
+            body: JSON.stringify(item)
           });
+          const id = started.id;
+          tracks.set(id, {...item, id, status: 'queued', progress: 0});
+          render();
           poll(id);
         }
         input.value = '';

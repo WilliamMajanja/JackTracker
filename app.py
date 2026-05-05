@@ -140,7 +140,15 @@ def is_new_or_modified_audio(path: Path, before: dict[str, float], started_at: f
     is_new_file = previous_mtime is None
     was_modified = previous_mtime is not None and current_mtime != previous_mtime
     modified_during_download = current_mtime >= started_at - DOWNLOAD_TIME_TOLERANCE_SECONDS
-    return is_new_file or was_modified or modified_during_download
+    return is_new_file or (was_modified and modified_during_download)
+
+
+def trim_error_output(output: str) -> str:
+    if len(output) <= MAX_ERROR_OUTPUT_LENGTH:
+        return output
+
+    half_limit = MAX_ERROR_OUTPUT_LENGTH // 2
+    return f"{output[:half_limit]}\n...\n{output[-half_limit:]}"
 
 
 def find_new_download(before: dict[str, float], started_at: float) -> str | None:
@@ -230,7 +238,7 @@ def download_worker(job_id: str, payload: dict[str, str]) -> None:
         download_url = f"/downloads/{quote(filename)}" if filename else None
         update_job(job_id, status="complete", progress=100, downloadUrl=download_url, message="Ready")
     else:
-        update_job(job_id, status="error", errorMessage="Download failed", output=output[-MAX_ERROR_OUTPUT_LENGTH:])
+        update_job(job_id, status="error", errorMessage="Download failed", output=trim_error_output(output))
 
 
 @app.before_request
