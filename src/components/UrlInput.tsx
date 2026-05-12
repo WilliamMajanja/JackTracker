@@ -1,6 +1,6 @@
 
 import React, { useMemo } from 'react';
-import { DownloadIcon, SpotifyIcon, SpinnerIcon, YouTubeIcon, LinkIcon } from './Icons';
+import { SpotifyIcon, SpinnerIcon, YouTubeIcon, LinkIcon } from './Icons';
 
 interface UrlInputProps {
   url: string;
