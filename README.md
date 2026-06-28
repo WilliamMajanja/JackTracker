@@ -56,6 +56,28 @@ Optional environment variables:
 - `RATE_LIMIT_MAX_REQUESTS`: Requests per minute per client, default `120`
 - `FLASK_DEBUG=1`: Enable Flask debug mode for local development
 
+## Telegram Bot Integration
+
+JackTracker can run as a Telegram bot, allowing you to download music by sending URLs directly to the bot.
+
+### Setup
+
+1. Create a bot via [@BotFather](https://t.me/BotFather) on Telegram and get the token.
+2. Set the following environment variables:
+
+   - `TELEGRAM_BOT_TOKEN`: Your bot token from BotFather
+   - `TELEGRAM_ALLOWED_CHAT_IDS`: Optional comma-separated list of chat/user IDs allowed to use the bot (leave unset to allow all)
+
+3. Start the application as usual. The bot runs in a background thread alongside the web UI.
+
+### Usage
+
+1. Start a chat with your bot and send `/start`.
+2. Send any supported music URL (Spotify, YouTube, Deezer, Audiomack, etc.).
+3. The bot will fetch the track info, download it, and send the MP3 file back to you.
+
+> **Note**: Telegram has a 50MB file upload limit. Very long tracks may exceed this and will return a download link instead.
+
 ## How to use
 
 1. Paste a Spotify, YouTube, Deezer, Audiomack, or other music streaming URL.

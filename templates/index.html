@@ -3,54 +3,472 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>JackTracker Python</title>
+  <title>JackTracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
   <style>
-    :root { color-scheme: dark; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, rgba(29,185,84,.18), transparent 36rem), #090909; color: white; }
-    main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 64px 0; }
-    .hero { text-align: center; margin-bottom: 40px; }
-    h1 { margin: 0; font-size: clamp(3rem, 10vw, 6rem); letter-spacing: -.08em; }
-    .tagline { color: #b3b3b3; font-size: 1.1rem; }
-    form { display: flex; gap: 12px; background: #121212; border: 1px solid #282828; border-radius: 999px; padding: 8px; box-shadow: 0 20px 80px rgba(0,0,0,.35); }
-    input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: white; font-size: 1rem; padding: 14px 18px; }
-    button, .download-link { border: 0; border-radius: 999px; background: #1db954; color: #041006; font-weight: 800; padding: 12px 20px; cursor: pointer; text-decoration: none; }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-top: 36px; }
-    .panel { background: rgba(18,18,18,.78); border: 1px solid #282828; border-radius: 24px; padding: 20px; backdrop-filter: blur(16px); }
-    .panel h2 { margin: 0 0 16px; font-size: 1rem; color: #dedede; }
-    .track { display: grid; grid-template-columns: 56px 1fr; gap: 14px; align-items: center; padding: 12px; border-radius: 18px; background: #181818; margin-bottom: 10px; }
-    .track img { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; background: #282828; }
-    .title { font-weight: 800; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .artist, .status { color: #b3b3b3; font-size: .85rem; margin-top: 4px; }
-    progress { width: 100%; accent-color: #1db954; }
-    .error { color: #fb7185; margin-top: 16px; text-align: center; }
-    .platforms { margin-top: 18px; color: #888; font-size: .9rem; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --cyan: #00f0ff;
+      --magenta: #ff00e5;
+      --purple: #7b2ff7;
+      --dark: #0a0a0f;
+      --panel: rgba(12, 12, 24, 0.72);
+      --border: rgba(0, 240, 255, 0.15);
+      --text: #e0e0f0;
+      --text-dim: #7a7a9a;
+      --radius: 16px;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      color-scheme: dark;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--dark);
+      color: var(--text);
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Animated mesh gradient background */
+    .bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .bg span {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: .35;
+      animation: float 20s ease-in-out infinite;
+    }
+    .bg span:nth-child(1) {
+      width: 600px; height: 600px;
+      background: var(--purple);
+      top: -10%; left: -5%;
+      animation-delay: 0s;
+    }
+    .bg span:nth-child(2) {
+      width: 500px; height: 500px;
+      background: var(--cyan);
+      bottom: -10%; right: -5%;
+      animation-delay: -7s;
+    }
+    .bg span:nth-child(3) {
+      width: 400px; height: 400px;
+      background: var(--magenta);
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      animation-delay: -14s;
+      opacity: .15;
+    }
+    @keyframes float {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      25% { transform: translate(60px, -80px) scale(1.1); }
+      50% { transform: translate(-40px, 60px) scale(.9); }
+      75% { transform: translate(80px, 40px) scale(1.05); }
+    }
+
+    /* Scanline overlay */
+    .scanlines {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 240, 255, .015) 2px,
+        rgba(0, 240, 255, .015) 4px
+      );
+    }
+
+    /* Grid overlay */
+    .grid-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(0, 240, 255, .03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 240, 255, .03) 1px, transparent 1px);
+      background-size: 60px 60px;
+    }
+
+    main {
+      position: relative;
+      z-index: 2;
+      width: min(960px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 48px 0 80px;
+    }
+
+    /* Header / Hero */
+    header {
+      text-align: center;
+      margin-bottom: 48px;
+      padding-top: 24px;
+    }
+    h1 {
+      font-size: clamp(3.5rem, 12vw, 7rem);
+      font-weight: 900;
+      letter-spacing: -.06em;
+      background: linear-gradient(135deg, var(--cyan), var(--purple), var(--magenta));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: hueShift 8s linear infinite;
+      filter: drop-shadow(0 0 60px rgba(0, 240, 255, .15));
+    }
+    @keyframes hueShift {
+      0% { filter: drop-shadow(0 0 60px rgba(0, 240, 255, .15)) hue-rotate(0deg); }
+      50% { filter: drop-shadow(0 0 80px rgba(123, 47, 247, .25)) hue-rotate(180deg); }
+      100% { filter: drop-shadow(0 0 60px rgba(0, 240, 255, .15)) hue-rotate(360deg); }
+    }
+    .tagline {
+      color: var(--text-dim);
+      font-size: 1.05rem;
+      margin-top: 8px;
+      letter-spacing: .02em;
+    }
+    .badge-row {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .badge {
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      border: 1px solid var(--border);
+      color: var(--cyan);
+      background: rgba(0, 240, 255, .06);
+    }
+
+    /* URL Form */
+    .form-wrap {
+      position: relative;
+      max-width: 680px;
+      margin: 0 auto 40px;
+    }
+    .form-wrap::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple), var(--magenta), var(--cyan));
+      background-size: 300% 300%;
+      animation: gradientBorder 4s ease-in-out infinite;
+      z-index: -1;
+      opacity: .6;
+    }
+    @keyframes gradientBorder {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    form {
+      display: flex;
+      gap: 8px;
+      background: rgba(8, 8, 20, .92);
+      border-radius: 999px;
+      padding: 6px;
+      backdrop-filter: blur(20px);
+    }
+    input {
+      flex: 1;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font-size: .95rem;
+      padding: 14px 20px;
+      font-family: inherit;
+    }
+    input::placeholder { color: var(--text-dim); }
+    button {
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--cyan), #0090ff);
+      color: #050510;
+      font-weight: 800;
+      font-size: .9rem;
+      padding: 12px 28px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all .25s ease;
+      white-space: nowrap;
+      position: relative;
+      overflow: hidden;
+    }
+    button:hover:not(:disabled) {
+      transform: scale(1.04);
+      box-shadow: 0 0 40px rgba(0, 240, 255, .35);
+    }
+    button:active:not(:disabled) { transform: scale(.97); }
+    button:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.6); }
+    .error {
+      color: #ff4060;
+      text-align: center;
+      margin-top: 12px;
+      font-size: .9rem;
+      min-height: 1.4em;
+      text-shadow: 0 0 20px rgba(255, 64, 96, .3);
+    }
+
+    /* Panels grid */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-top: 8px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      backdrop-filter: blur(24px);
+      box-shadow: 0 8px 40px rgba(0, 0, 0, .4), inset 0 1px 0 rgba(255, 255, 255, .04);
+      transition: border-color .3s ease;
+    }
+    .panel:hover {
+      border-color: rgba(0, 240, 255, .25);
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, .04);
+    }
+    .panel-header .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .panel-header .dot.cyan { background: var(--cyan); box-shadow: 0 0 12px rgba(0, 240, 255, .4); }
+    .panel-header .dot.purple { background: var(--purple); box-shadow: 0 0 12px rgba(123, 47, 247, .4); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(.85); }
+    }
+    .panel h2 {
+      font-size: .85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--text-dim);
+    }
+    .panel h2 span {
+      color: var(--text);
+      margin-left: 6px;
+    }
+    .empty-state {
+      color: var(--text-dim);
+      font-size: .85rem;
+      padding: 24px 0;
+      text-align: center;
+    }
+
+    /* Track card */
+    .track {
+      display: grid;
+      grid-template-columns: 52px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .03);
+      border: 1px solid rgba(255, 255, 255, .04);
+      margin-bottom: 10px;
+      transition: all .25s ease;
+      animation: slideIn .35s ease backwards;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .track:hover {
+      background: rgba(255, 255, 255, .06);
+      border-color: rgba(0, 240, 255, .15);
+      transform: translateX(4px);
+    }
+    .track img {
+      width: 52px; height: 52px;
+      border-radius: 10px;
+      object-fit: cover;
+      background: #181830;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
+    }
+    .track-info { min-width: 0; }
+    .track-info .title {
+      font-weight: 700;
+      font-size: .9rem;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .track-info .artist {
+      color: var(--text-dim);
+      font-size: .78rem;
+      margin-top: 2px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .track-info .meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .track-info .status {
+      font-size: .75rem;
+      color: var(--text-dim);
+    }
+    .track-info .status.active { color: var(--cyan); }
+    .track-info .status.done { color: #00ff88; }
+    .track-info .status.error { color: #ff4060; }
+
+    /* Glowing progress bar */
+    .progress-wrap {
+      flex: 1;
+      height: 4px;
+      background: rgba(255, 255, 255, .06);
+      border-radius: 4px;
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-wrap .bar {
+      height: 100%;
+      width: 0%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+      transition: width .4s ease;
+      position: relative;
+    }
+    .progress-wrap .bar::after {
+      content: '';
+      position: absolute;
+      right: 0; top: -2px;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 16px var(--cyan);
+    }
+    .progress-wrap .bar.glowing {
+      box-shadow: 0 0 20px rgba(0, 240, 255, .3);
+    }
+
+    /* Download link */
+    .download-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: .72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      text-decoration: none;
+      color: #050510;
+      background: linear-gradient(135deg, #00ff88, #00cc6a);
+      transition: all .25s ease;
+    }
+    .download-link:hover {
+      transform: scale(1.06);
+      box-shadow: 0 0 30px rgba(0, 255, 136, .3);
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0, 240, 255, .2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(0, 240, 255, .4); }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 32px 0 16px;
+      color: var(--text-dim);
+      font-size: .75rem;
+      position: relative;
+      z-index: 2;
+    }
+    footer a { color: var(--cyan); text-decoration: none; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      form { flex-direction: column; border-radius: 20px; padding: 8px; }
+      input { padding: 12px 16px; }
+      button { width: 100%; justify-content: center; }
+      .form-wrap::before { border-radius: 24px; }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <section class="hero">
-      <h1>JackTracker</h1>
-      <p class="tagline">Python-powered downloader for Spotify, YouTube, Deezer, Audiomack, and other yt-dlp-supported music links.</p>
-      <p class="platforms">Spotify uses spotDL first and automatically falls back to yt-dlp search when spotDL is rate-limited.</p>
-    </section>
+  <div class="bg">
+    <span></span><span></span><span></span>
+  </div>
+  <div class="grid-overlay"></div>
+  <div class="scanlines"></div>
 
-    <form id="url-form">
-      <input id="url" type="url" placeholder="Paste a Spotify, YouTube, Deezer, Audiomack, or music URL..." required>
-      <button id="submit" type="submit">Find & Download</button>
-    </form>
-    <div id="error" class="error"></div>
+  <main>
+    <header>
+      <h1>JackTracker</h1>
+      <p class="tagline">Download high-quality music from any streaming platform</p>
+      <div class="badge-row">
+        <span class="badge">Spotify</span>
+        <span class="badge">YouTube</span>
+        <span class="badge">Deezer</span>
+        <span class="badge">Audiomack</span>
+        <span class="badge">Telegram</span>
+        <span class="badge">+ more</span>
+      </div>
+    </header>
+
+    <div class="form-wrap">
+      <form id="url-form">
+        <input id="url" type="url" placeholder="Paste a Spotify, YouTube, Deezer, or music URL..." required>
+        <button id="submit" type="submit">Download</button>
+      </form>
+      <div id="error" class="error"></div>
+    </div>
 
     <section class="grid">
       <div class="panel">
-        <h2>Active Queue</h2>
-        <div id="active"><p class="artist">Queue is empty</p></div>
+        <div class="panel-header">
+          <span class="dot cyan"></span>
+          <h2>Active <span>Queue</span></h2>
+        </div>
+        <div id="active"><p class="empty-state">Queue is empty</p></div>
       </div>
       <div class="panel">
-        <h2>History</h2>
-        <div id="history"><p class="artist">No recent downloads</p></div>
+        <div class="panel-header">
+          <span class="dot purple"></span>
+          <h2>History</h2>
+        </div>
+        <div id="history"><p class="empty-state">No recent downloads</p></div>
       </div>
     </section>
+
+    <footer>
+      Powered by <a href="https://github.com/spotDL/spotify-downloader" target="_blank">spotDL</a> &amp; <a href="https://github.com/yt-dlp/yt-dlp" target="_blank">yt-dlp</a>
+    </footer>
   </main>
 
   <script>
@@ -61,60 +479,73 @@
     const errorBox = document.getElementById('error');
     const active = document.getElementById('active');
     const history = document.getElementById('history');
-
     const fallbackImage = '/static/logo.svg';
 
     function render() {
-      const activeTracks = [...tracks.values()].filter(track => ['queued', 'downloading'].includes(track.status));
-      const completedTracks = [...tracks.values()].filter(track => ['complete', 'error'].includes(track.status));
-      active.innerHTML = activeTracks.length ? activeTracks.map(renderTrack).join('') : '<p class="artist">Queue is empty</p>';
-      history.innerHTML = completedTracks.length ? completedTracks.map(renderTrack).join('') : '<p class="artist">No recent downloads</p>';
+      const entries = [...tracks.values()];
+      const activeTracks = entries.filter(t => ['queued', 'downloading'].includes(t.status));
+      const completedTracks = entries.filter(t => ['complete', 'error'].includes(t.status));
+      active.innerHTML = activeTracks.length
+        ? activeTracks.map(renderTrack).join('')
+        : '<p class="empty-state">Queue is empty</p>';
+      history.innerHTML = completedTracks.length
+        ? completedTracks.map(renderTrack).join('')
+        : '<p class="empty-state">No recent downloads</p>';
     }
 
-    function escapeHtml(value) {
-      return String(value || '').replace(/[&<>"']/g, char => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[char]));
+    function escapeHtml(v) {
+      return String(v || '').replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
     }
 
     function renderTrack(track) {
-      const progress = Math.round(track.progress || 0);
-      const status = track.errorMessage || track.message || track.status;
-      const action = track.downloadUrl ? `<a class="download-link" href="${track.downloadUrl}" download>MP3</a>` : '';
+      const p = Math.round(track.progress || 0);
+      const st = track.errorMessage || track.message || track.status;
+      const isActive = ['queued', 'downloading'].includes(track.status);
+      const statusClass = track.status === 'complete' ? 'done' : track.status === 'error' ? 'error' : 'active';
+      const progHtml = isActive
+        ? `<div class="progress-wrap"><div class="bar glowing" style="width:${p}%"></div></div>`
+        : track.downloadUrl
+          ? `<a class="download-link" href="${track.downloadUrl}" download>⬇ MP3</a>`
+          : '';
       return `<article class="track">
-        <img src="${escapeHtml(track.albumArtUrl || fallbackImage)}" alt="" onerror="this.src='${fallbackImage}'">
-        <div>
+        <img src="${escapeHtml(track.albumArtUrl || fallbackImage)}" alt="" loading="lazy" onerror="this.src='${fallbackImage}'">
+        <div class="track-info">
           <div class="title">${escapeHtml(track.trackName || 'Queued music link')}</div>
           <div class="artist">${escapeHtml(track.artistName || 'Unknown artist')}</div>
-          <progress max="100" value="${progress}"></progress>
-          <div class="status">${escapeHtml(status)} ${action}</div>
+          <div class="meta">
+            <span class="status ${statusClass}">${escapeHtml(st)}</span>
+            ${progHtml}
+          </div>
         </div>
       </article>`;
     }
 
-    async function jsonFetch(url, options) {
-      const response = await fetch(url, options);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || 'Request failed');
-      return data;
+    async function jsonFetch(url, opts) {
+      const r = await fetch(url, opts);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || 'Request failed');
+      return d;
     }
 
-    function poll(trackId) {
-      const timer = setInterval(async () => {
+    function poll(id) {
+      const t = setInterval(async () => {
         try {
-          const status = await jsonFetch(`/api/download/${trackId}`);
-          tracks.set(trackId, {...tracks.get(trackId), ...status});
+          const s = await jsonFetch(`/api/download/${id}`);
+          tracks.set(id, {...tracks.get(id), ...s});
           render();
-          if (['complete', 'error'].includes(status.status)) clearInterval(timer);
-        } catch (error) {
-          clearInterval(timer);
-          const track = tracks.get(trackId) || {id: trackId};
-          tracks.set(trackId, {...track, status: 'error', errorMessage: error.message});
+          if (['complete', 'error'].includes(s.status)) clearInterval(t);
+        } catch (e) {
+          clearInterval(t);
+          const tr = tracks.get(id) || {id};
+          tracks.set(id, {...tr, status: 'error', errorMessage: e.message});
           render();
         }
       }, 1000);
     }
 
-    form.addEventListener('submit', async (event) => {
-      event.preventDefault();
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
       errorBox.textContent = '';
       submit.disabled = true;
       try {
@@ -123,7 +554,6 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({url: input.value})
         });
-
         for (const item of metadata) {
           const started = await jsonFetch('/api/download', {
             method: 'POST',
@@ -136,8 +566,8 @@
           poll(id);
         }
         input.value = '';
-      } catch (error) {
-        errorBox.textContent = error.message;
+      } catch (err) {
+        errorBox.textContent = err.message;
       } finally {
         submit.disabled = false;
       }
